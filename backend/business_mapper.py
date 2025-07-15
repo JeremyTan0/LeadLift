@@ -31,6 +31,7 @@ def search_businesses(query: str, next_page_token:str = None):
         "X-Goog-Api-Key": GOOGLE_API_KEY,
         "X-Goog-FieldMask":
             "places.displayName,"
+            "places.formattedAddress,"
             "places.id,"
             "places.rating,"
             "places.userRatingCount,"
@@ -83,7 +84,7 @@ def get_business_details(place_id: str):
         raw_data = response.json()
 
         cleaned_data = {
-            "name": raw_data.get("displayName", None).get("text", None),
+            "name": raw_data.get("displayName", {}).get("text", None),
             "status": raw_data.get("businessStatus", None),
             "address": raw_data.get("formattedAddress", None),
             "localPhone": raw_data.get("nationalPhoneNumber", None),
@@ -91,11 +92,12 @@ def get_business_details(place_id: str):
             "website": raw_data.get("websiteUri", None),
             "rating": raw_data.get("rating", None),
             "totalReviews": raw_data.get("userRatingCount", None),
-            "summary": raw_data.get("editorialSummary", None).get("text", None),
-            "reviewSummary": raw_data.get("reviewSummary", None).get("text", None).get("text", None),
+            "summary": raw_data.get("editorialSummary", {}).get("text", None),
+            "reviewSummary": raw_data.get("reviewSummary", {}).get("text", {}).get("text", None),
             "reviews": [],
             "photos": []
         }
+        
         for review in raw_data.get("reviews", []):
             cleaned_data["reviews"].append({
                 "author": review.get("authorAttribution", None).get("displayName", None),
