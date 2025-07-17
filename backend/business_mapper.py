@@ -1,19 +1,48 @@
 from dotenv import load_dotenv
+import hashlib
 import json
+import redis
 import requests
 import os
-from functools import lru_cache
+from loaders.website_audit import website_audit
+from loaders.gtrend_finder import get_search_trends
+from urllib.parse import urlparse
+
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+r = redis.from_url(REDIS_URL, decode_responses=True)
 
 
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY is missing in .env file")
 
+def redis_cache(duration=172800):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            key_base = {
+                "func": func.__name__,
+                "args": args,
+                "kwargs": kwargs
+            }
+
+            key_str = json.dumps(key_base, sort_keys=True, default=str)
+            key_hash = hashlib.md5(key_str.encode()).hexdigest()
+            redis_key = f"cache:{func.__name__}:{key_hash}"
+
+            cached = r.get(redis_key)
+            if cached:
+                return json.loads(cached)
+
+            result = func(*args, **kwargs)
+            r.setex(redis_key, duration, json.dumps(result))
+            return result
+        return wrapper
+    return decorator
 
 
-@lru_cache(maxsize=100)
+@redis_cache(duration=172800)
 def search_businesses(query: str, next_page_token:str = None):
 
     print(f"Looking up query: {query}")
@@ -52,7 +81,7 @@ def search_businesses(query: str, next_page_token:str = None):
         return []
 
 
-@lru_cache(maxsize=50)
+@redis_cache(duration=604800)
 def get_business_details(place_id: str):
     print(f"Looking up business ID: {place_id}")
 
@@ -113,8 +142,15 @@ def get_business_details(place_id: str):
                     "width": photo.get("widthPx", None),
                     "height": photo.get("heightPx", None)
                 })
+                
+        cleaned_data["gtrends"] = get_search_trends(cleaned_data["name"])
+
+        parsed_url = urlparse(cleaned_data["website"])
+        cleaned_data["website_audit"] = website_audit(f"{parsed_url.netloc}")
         return cleaned_data
 
     except requests.RequestException as e:
         print(f"Error getting business details: {e}")
         return None
+
+

@@ -50,7 +50,4 @@ def get_business_info(place_id: str):
     if not business:
         return 404, "Business not found"
 
-    # business_score = analyze_business(place_id)
-    # business['seo_score'] = business_score
-
     return business
