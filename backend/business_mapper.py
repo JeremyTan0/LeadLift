@@ -6,6 +6,7 @@ import requests
 import os
 from loaders.website_audit import website_audit
 from loaders.gtrend_finder import get_search_trends
+from loaders.ai_summarizer import gen_ai_summary
 from urllib.parse import urlparse
 
 
@@ -18,18 +19,52 @@ r = redis.from_url(REDIS_URL, decode_responses=True)
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY is missing in .env file")
 
+
 def redis_cache(duration=172800):
     def decorator(func):
         def wrapper(*args, **kwargs):
-            key_base = {
-                "func": func.__name__,
-                "args": args,
-                "kwargs": kwargs
-            }
+            func_name = func.__name__
 
-            key_str = json.dumps(key_base, sort_keys=True, default=str)
-            key_hash = hashlib.md5(key_str.encode()).hexdigest()
-            redis_key = f"cache:{func.__name__}:{key_hash}"
+            if func_name == "get_business_details" and "place_id" in kwargs:
+                redis_key = f"cache:{func_name}:{kwargs['place_id']}"
+
+            elif func_name == "get_business_stats":
+                name = kwargs.get("name") or (args[0] if len(args) > 0 else "unknown")
+                website = kwargs.get("website") or (args[1] if len(args) > 1 else "")
+                name = name.replace(" ", "_")
+                try:
+                    parsed = urlparse(website)
+                    domain = parsed.netloc.lower() if parsed.netloc else "no-site"
+                except Exception:
+                    domain = "invalid-site"
+                redis_key = f"cache:{func_name}:{name}:{domain}"
+
+            elif func_name == "search_businesses":
+                query = kwargs.get("query") or (args[0] if len(args) > 0 else "")
+                token = kwargs.get("next_page_token") or (args[1] if len(args) > 1 else "")
+                base = json.dumps({"q": query, "token": token}, sort_keys=True)
+                key_hash = hashlib.md5(base.encode()).hexdigest()
+                redis_key = f"cache:{func_name}:{key_hash}"
+
+            elif func_name == "get_website_stats":
+                website = kwargs.get("website") or (args[0] if len(args) > 0 else "")
+                try:
+                    parsed = urlparse(website)
+                    domain = parsed.netloc.lower() if parsed.netloc else "no-site"
+                except Exception:
+                    domain = "invalid-site"
+                redis_key = f"cache:{func_name}:{domain}"
+
+            elif func_name == "get_search_trends":
+                name = kwargs.get("name") or (args[0] if len(args) > 0 else "unknown")
+                name = name.replace(" ", "_")
+                redis_key = f"cache:{func_name}:{name}"
+
+            elif func_name == "ai_summary" and "place_id" in kwargs:
+                redis_key = f"cache:{func_name}:{kwargs['place_id']}"
+
+            else:
+                return func(*args, **kwargs)
 
             cached = r.get(redis_key)
             if cached:
@@ -38,7 +73,9 @@ def redis_cache(duration=172800):
             result = func(*args, **kwargs)
             r.setex(redis_key, duration, json.dumps(result))
             return result
+
         return wrapper
+
     return decorator
 
 
@@ -142,11 +179,7 @@ def get_business_details(place_id: str):
                     "width": photo.get("widthPx", None),
                     "height": photo.get("heightPx", None)
                 })
-                
-        cleaned_data["gtrends"] = get_search_trends(cleaned_data["name"])
 
-        parsed_url = urlparse(cleaned_data["website"])
-        cleaned_data["website_audit"] = website_audit(f"{parsed_url.netloc}")
         return cleaned_data
 
     except requests.RequestException as e:
@@ -154,3 +187,23 @@ def get_business_details(place_id: str):
         return None
 
 
+@redis_cache(duration=604800)
+def get_website_stats(website: str):
+    output = {}
+    try:
+        parsed_url = urlparse(website)
+        output["website_audit"] = website_audit(f"{parsed_url.netloc}")
+    except:
+        output["website_audit"] = {"url": None}
+    return output
+
+
+@redis_cache(duration=604800)
+def get_gtrends(name: str):
+    return {"gtrends": get_search_trends(name)}
+
+
+@redis_cache(duration=604800)
+def ai_summary(place_id: str):
+    business = get_business_details(place_id=place_id)
+    return {"ai_summary": gen_ai_summary(business=business)}
