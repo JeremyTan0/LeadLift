@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 
-from business_mapper import search_businesses, get_business_details, get_website_stats, get_gtrends, ai_summary
+from business_mapper import (search_businesses, get_business_details,
+                             get_website_stats, get_gtrends, ai_summary, get_score)
 import os
 
 app = FastAPI()
@@ -51,13 +52,19 @@ def get_business_info(place_id: str):
         return 404, "Business not found"
     return business
 
+@app.get("/businesses/score/{place_id}")
+def get_business_score(place_id: str):
+    score = get_score(place_id=place_id)
+    if not score:
+        return 404, "No score calculated"
+    return score
 
 @app.get("/businesses/web-analytics/{place_id}")
-def get_web_analytics(website: str):
-    stats = get_website_stats(website=website)
+def get_web_analytics(place_id: str):
+    stats = get_website_stats(place_id=place_id)
     if not stats:
         return 404, "Stats not found"
-    return stats
+    return stats["website_audit"]
 
 
 @app.get("/businesses/trends/{name}")
@@ -65,7 +72,7 @@ def get_trends(name: str,):
     stats = get_gtrends(name=name)
     if not stats:
         return 404, "Trends not found"
-    return stats
+    return stats["gtrends"]
 
 @app.get("/businesses/summary/{place_id}")
 def get_summary(place_id: str):

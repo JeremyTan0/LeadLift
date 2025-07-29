@@ -8,6 +8,12 @@ from loaders.website_audit import website_audit
 from loaders.gtrend_finder import get_search_trends
 from loaders.ai_summarizer import gen_ai_summary
 from urllib.parse import urlparse
+from google import genai
+from google.genai import types
+from pydantic import BaseModel
+
+class AIScore(BaseModel):
+    score: float
 
 
 load_dotenv()
@@ -126,6 +132,7 @@ def get_business_details(place_id: str):
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_API_KEY,
         "X-Goog-FieldMask":
+            "id,"
             "displayName,"
             "formattedAddress,"
             "rating,"
@@ -150,6 +157,7 @@ def get_business_details(place_id: str):
         raw_data = response.json()
 
         cleaned_data = {
+            "id": raw_data.get("id", None),
             "name": raw_data.get("displayName", {}).get("text", None),
             "status": raw_data.get("businessStatus", None),
             "address": raw_data.get("formattedAddress", None),
@@ -188,7 +196,9 @@ def get_business_details(place_id: str):
 
 
 @redis_cache(duration=604800)
-def get_website_stats(website: str):
+def get_website_stats(place_id: str):
+    business = get_business_details(place_id=place_id)
+    website = business.website
     output = {}
     try:
         parsed_url = urlparse(website)
@@ -207,3 +217,40 @@ def get_gtrends(name: str):
 def ai_summary(place_id: str):
     business = get_business_details(place_id=place_id)
     return {"ai_summary": gen_ai_summary(business=business)}
+
+WEIGHTS = {
+    "website": 0.4,
+    "gemini": 0.6,
+}
+
+@redis_cache(duration=604800)
+def get_score(place_id: str):
+    business = get_business_details(place_id=place_id)
+    business_name = business.name
+    website_score = get_website_stats(place_id=place_id)["website_audit"]["score"]
+    g_trends = get_gtrends(name=business_name)
+
+    prompt = f"""As a professional SEO research assistant, research the business named "{business_name}" in {business.address}. 
+    Consider their online presence, customer reviews or reputation, Social media activity, and any publicly available business summaries
+    Based on this, assign a credibility score as a float from 0.0 (poor presence) to 1.0 (Great presence).
+    Give just the score as a number."""
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    MODEL = "gemini-2.5-pro"
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=AIScore
+        )
+    )
+
+    if not response:
+        raise ValueError("API returned empty response")
+
+    if not hasattr(response, 'parsed') or response.parsed is None:
+        raise ValueError("API response missing parsed content")
+
+    gemini_score: AIScore = response.parsed
+    final_score = (website_score * WEIGHTS["website"]) + (float(gemini_score.score) * WEIGHTS["website"])
+    return final_score
