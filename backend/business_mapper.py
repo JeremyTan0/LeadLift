@@ -10,11 +10,6 @@ from loaders.ai_summarizer import gen_ai_summary
 from urllib.parse import urlparse
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
-
-class AIScore(BaseModel):
-    score: float
-
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -48,20 +43,15 @@ def redis_cache(duration=172800):
             elif func_name == "search_businesses":
                 query = kwargs.get("query") or (args[0] if len(args) > 0 else "")
                 token = kwargs.get("next_page_token") or (args[1] if len(args) > 1 else "")
+                query = query.lower()
                 base = json.dumps({"q": query, "token": token}, sort_keys=True)
                 key_hash = hashlib.md5(base.encode()).hexdigest()
                 redis_key = f"cache:{func_name}:{key_hash}"
 
             elif func_name == "get_website_stats":
-                website = kwargs.get("website") or (args[0] if len(args) > 0 else "")
-                try:
-                    parsed = urlparse(website)
-                    domain = parsed.netloc.lower() if parsed.netloc else "no-site"
-                except Exception:
-                    domain = "invalid-site"
-                redis_key = f"cache:{func_name}:{domain}"
+                redis_key = f"cache:{func_name}:{kwargs['place_id']}"
 
-            elif func_name == "get_search_trends":
+            elif func_name == "get_gtrends":
                 name = kwargs.get("name") or (args[0] if len(args) > 0 else "unknown")
                 name = name.replace(" ", "_")
                 redis_key = f"cache:{func_name}:{name}"
@@ -74,6 +64,7 @@ def redis_cache(duration=172800):
 
             cached = r.get(redis_key)
             if cached:
+                print(f"CACHED! {cached[:50]}")
                 return json.loads(cached)
 
             result = func(*args, **kwargs)
@@ -87,8 +78,8 @@ def redis_cache(duration=172800):
 
 @redis_cache(duration=172800)
 def search_businesses(query: str, next_page_token:str = None):
-
     print(f"Looking up query: {query}")
+    query = query.lower()
 
     search_params = {
         "textQuery": query,
@@ -198,13 +189,13 @@ def get_business_details(place_id: str):
 @redis_cache(duration=604800)
 def get_website_stats(place_id: str):
     business = get_business_details(place_id=place_id)
-    website = business.website
+    website = business["website"]
     output = {}
     try:
         parsed_url = urlparse(website)
-        output["website_audit"] = website_audit(f"{parsed_url.netloc}")
+        output = website_audit(f"{parsed_url.netloc}")
     except:
-        output["website_audit"] = {"url": None}
+        output = {"url": None}
     return output
 
 
@@ -216,7 +207,8 @@ def get_gtrends(name: str):
 @redis_cache(duration=604800)
 def ai_summary(place_id: str):
     business = get_business_details(place_id=place_id)
-    return {"ai_summary": gen_ai_summary(business=business)}
+    return gen_ai_summary(business=business)
+
 
 WEIGHTS = {
     "website": 0.4,
@@ -225,32 +217,8 @@ WEIGHTS = {
 
 @redis_cache(duration=604800)
 def get_score(place_id: str):
-    business = get_business_details(place_id=place_id)
-    business_name = business.name
-    website_score = get_website_stats(place_id=place_id)["website_audit"]["score"]
-    g_trends = get_gtrends(name=business_name)
+    ai_calculation = ai_summary(place_id=place_id)["overall_score"]
+    website_score = get_website_stats(place_id=place_id)["score"]["percentage"]
 
-    prompt = f"""As a professional SEO research assistant, research the business named "{business_name}" in {business.address}. 
-    Consider their online presence, customer reviews or reputation, Social media activity, and any publicly available business summaries
-    Based on this, assign a credibility score as a float from 0.0 (poor presence) to 1.0 (Great presence).
-    Give just the score as a number."""
-    client = genai.Client(api_key=GOOGLE_API_KEY)
-    MODEL = "gemini-2.5-pro"
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=AIScore
-        )
-    )
-
-    if not response:
-        raise ValueError("API returned empty response")
-
-    if not hasattr(response, 'parsed') or response.parsed is None:
-        raise ValueError("API response missing parsed content")
-
-    gemini_score: AIScore = response.parsed
-    final_score = (website_score * WEIGHTS["website"]) + (float(gemini_score.score) * WEIGHTS["website"])
-    return final_score
+    final_score = (website_score * WEIGHTS["website"]) + (float(ai_calculation) * WEIGHTS["website"])
+    return round(final_score, 1)

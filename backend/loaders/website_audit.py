@@ -38,6 +38,7 @@ def audit_title_tag(soup):
         'score': score
     }
 
+
 def audit_meta_description(soup):
     meta_desc = soup.find('meta', attrs={'name': 'description'})
 
@@ -69,6 +70,7 @@ def audit_meta_description(soup):
         'score': score
     }
 
+
 def audit_language_attribute(soup):
     html_tag = soup.find('html')
 
@@ -84,6 +86,7 @@ def audit_language_attribute(soup):
             'lang': None,
             'score': 5
         }
+
 
 def audit_header_tags(soup):
     h1_tags = soup.find_all('h1')
@@ -108,6 +111,7 @@ def audit_header_tags(soup):
         'h2_h6': h2_h6_result
     }
 
+
 def audit_content_amount(soup):
     for script in soup(["script", "style"]):
         script.decompose()
@@ -130,6 +134,7 @@ def audit_content_amount(soup):
         'word_count': words,
         'score': score
     }
+
 
 def audit_images(soup):
     images = soup.find_all('img')
@@ -159,6 +164,7 @@ def audit_images(soup):
         'score': score
     }
 
+
 def calculate_score(results):
     total_score = 0
     max_score = 0
@@ -181,10 +187,11 @@ def calculate_score(results):
         percentage = (total_score / max_score * 100)
 
     return {
-        'score': total_score,
+        'score': round(total_score, 1),
         'max_score': max_score,
         'percentage': round(percentage, 1)
     }
+
 
 def website_audit(url):
     api = CrawlingAPI({ 'token': CRAWLBASE_JSAPI_KEY })

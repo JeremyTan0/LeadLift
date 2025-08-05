@@ -1,7 +1,10 @@
-from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from .models import Base
 
-engine = create_engine("sqlite:///leadlift.db", echo=True)
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
+engine = create_async_engine("sqlite+aiosqlite:///leadlift.db", echo=True)
+async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def get_db():
+    async with async_session() as session:
+        yield session
