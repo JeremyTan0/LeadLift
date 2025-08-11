@@ -4,9 +4,9 @@ import json
 import redis
 import requests
 import os
-from loaders.website_audit import website_audit
-from loaders.gtrend_finder import get_search_trends
-from loaders.ai_summarizer import gen_ai_summary
+from .loaders.website_audit import website_audit
+from .loaders.gtrend_finder import get_search_trends
+from .loaders.ai_summarizer import gen_ai_summary
 from urllib.parse import urlparse
 from google import genai
 from google.genai import types
@@ -69,6 +69,7 @@ def redis_cache(duration=172800):
 
             result = func(*args, **kwargs)
             r.setex(redis_key, duration, json.dumps(result))
+            print(f"SET!!!!!!! {func_name}")
             return result
 
         return wrapper
@@ -138,6 +139,10 @@ def get_business_details(place_id: str):
             "reviews"
     }
 
+    photo_headers = {
+        "X-Goog-Api-Key": GOOGLE_API_KEY
+    }
+
 
     try:
         response = requests.get(
@@ -162,7 +167,6 @@ def get_business_details(place_id: str):
             "reviews": [],
             "photos": []
         }
-        
         for review in raw_data.get("reviews", []):
             cleaned_data["reviews"].append({
                 "author": review.get("authorAttribution", None).get("displayName", None),
@@ -170,15 +174,17 @@ def get_business_details(place_id: str):
                 "time": review.get("relativePublishTimeDescription", None),
                 "text": review.get("text", None).get("text", None),
             })
-
         for photo in raw_data.get("photos", []):
-            for author in photo.get("authorAttributions", []):
-                cleaned_data["photos"].append({
-                    "photoUri": photo.get("googleMapsUri", None),
-                    "width": photo.get("widthPx", None),
-                    "height": photo.get("heightPx", None)
-                })
+            photo_name = photo.get("name")
 
+            if not photo_name:
+                continue
+
+            response = requests.get(f"https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=800",
+                                    headers=photo_headers,
+                                    allow_redirects=False)
+            if response.status_code == 302:
+                cleaned_data["photos"].append(response.headers.get("Location"))
         return cleaned_data
 
     except requests.RequestException as e:
@@ -206,6 +212,7 @@ def get_gtrends(name: str):
 
 @redis_cache(duration=604800)
 def ai_summary(place_id: str):
+    print("I WAS CALLLED!!!!")
     business = get_business_details(place_id=place_id)
     return gen_ai_summary(business=business)
 
@@ -219,6 +226,8 @@ WEIGHTS = {
 def get_score(place_id: str):
     ai_calculation = ai_summary(place_id=place_id)["overall_score"]
     website_score = get_website_stats(place_id=place_id)["score"]["percentage"]
+    print(ai_calculation)
+    print(website_score)
 
-    final_score = (website_score * WEIGHTS["website"]) + (float(ai_calculation) * WEIGHTS["website"])
+    final_score = (website_score * WEIGHTS["website"]) + (float(ai_calculation) * WEIGHTS["gemini"])
     return round(final_score, 1)

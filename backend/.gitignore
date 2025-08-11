@@ -1,1 +1,4 @@
 .env
+leadlift.db
+node_modules
+.next
