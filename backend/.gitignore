@@ -3,3 +3,5 @@ leadlift.db
 node_modules
 .next
 .idea
+*.pyc
+__pycache__/
