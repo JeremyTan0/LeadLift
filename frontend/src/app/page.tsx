@@ -62,7 +62,7 @@ export default function HomePage() {
             {/* Badge */}
             <div className="inline-flex items-center space-x-2 bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-full px-4 py-2 text-sm">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              <span className="text-zinc-300">Trusted by 10,000+ professionals</span>
+              <span className="text-zinc-300">Intelligent Searching</span>
             </div>
 
             {/* Main headline */}
@@ -80,11 +80,11 @@ export default function HomePage() {
                 <p className="text-zinc-300 text-xl md:text-2xl leading-relaxed">
                   Transform your lead generation with AI that finds, qualifies, and delivers 
                   <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 font-semibold"> perfect prospects </span>
-                  directly to your inbox.
+                  directly to you.
                 </p>
                 
                 <p className="text-zinc-400 text-lg">
-                  Join thousands of sales teams generating 300% more qualified leads.
+                  Join a new generation of sales teams generating more qualified leads, faster.
                 </p>
               </div>
             </div>
